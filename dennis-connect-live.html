@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DENNIS CONNECT.com</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--tx:#14213d;--mu:#6b7690;--ac:#1d5cff;--ac2:#0fb98a;--bd:#e0e5f0}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1220;--card:#161d30;--tx:#eef1fa;--mu:#8e98b3;--bd:#262f48}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+header{background:linear-gradient(120deg,var(--ac),var(--ac2));color:#fff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center}
+header h1{margin:0;font-size:1.5rem}
+main{max-width:960px;margin:0 auto;padding:18px;display:grid;grid-template-columns:1fr 260px;gap:18px}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:16px}
+h2{margin:0 0 10px;font-size:1.05rem}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button{flex:1;padding:9px;border:1px solid var(--bd);background:transparent;color:var(--tx);border-radius:10px;cursor:pointer;font-weight:600}
+.tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+input,textarea{width:100%;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit;margin-bottom:10px}
+.btn{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 18px;font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;color:inherit;border:1px solid currentColor;padding:4px 10px;font-weight:500;font-size:.8rem}
+.mu{color:var(--mu);font-size:.85rem}
+.msg{font-size:.85rem;min-height:1.2em;color:#d6336c}
+.msg.ok{color:var(--ac2)}
+.post .meta{display:flex;justify-content:space-between;gap:8px}
+.post b{color:var(--ac)}
+.post p{margin:6px 0 0;white-space:pre-wrap;word-wrap:break-word}
+.mem{padding:5px 0}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header><h1>DENNIS CONNECT.com</h1><button class="btn ghost hide" id="out">Sign out</button></header>
+<main>
+<section>
+ <!-- AUTH -->
+ <div id="auth" class="card">
+  <h2>Sign in or create an account</h2>
+  <div class="tabs"><button id="tP" class="on">Phone (SMS)</button><button id="tE">Email</button></div>
+
+  <div id="pBox">
+   <input id="ph" type="tel" placeholder="+233 24 000 0000 (with country code)">
+   <button class="btn" id="sendSms">Send SMS code</button>
+   <div id="codeBox" class="hide" style="margin-top:12px">
+    <input id="code" inputmode="numeric" maxlength="6" placeholder="6-digit code">
+    <button class="btn" id="verifySms">Verify &amp; continue</button>
+   </div>
+  </div>
+
+  <div id="eBox" class="hide">
+   <input id="em" type="email" placeholder="you@example.com">
+   <input id="pw" type="password" placeholder="Password (min 8 characters)">
+   <button class="btn" id="signIn">Sign in</button>
+   <button class="btn ghost" id="signUp" style="margin-left:6px">Create account</button>
+   <button class="btn ghost" id="reset" style="margin-left:6px">Forgot password</button>
+  </div>
+  <div id="recaptcha"></div>
+  <div class="msg" id="amsg"></div>
+ </div>
+
+ <!-- NAME STEP -->
+ <div id="nameBox" class="card hide">
+  <h2>Choose your display name</h2>
+  <input id="nm" maxlength="40" placeholder="Your name">
+  <button class="btn" id="saveName">Continue</button>
+ </div>
+
+ <!-- APP -->
+ <div id="app" class="hide">
+  <div class="card">
+   <h2>Share something</h2>
+   <textarea id="tx" rows="3" maxlength="1000" placeholder="Share news, ideas or updates…"></textarea>
+   <button class="btn" id="post">Post</button>
+  </div>
+  <div id="feed"></div>
+ </div>
+</section>
+<aside><div class="card"><h2>Members <span class="mu" id="cnt"></span></h2><div id="mem" class="mu">Sign in to see members.</div></div></aside>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// 1) PASTE YOUR FIREBASE CONFIG HERE (Firebase Console > Project settings > Your apps > Web)
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  appId: "YOUR_APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth(), db = firebase.firestore();
+const $ = id => document.getElementById(id);
+const say = (t, ok) => { const m = $('amsg'); m.textContent = t; m.className = 'msg' + (ok ? ' ok' : ''); };
+const mask = u => u.phoneNumber ? '••••' + u.phoneNumber.slice(-3) : (u.email ? u.email[0] + '***@' + u.email.split('@')[1] : '');
+let confirmation = null, unsubs = [], myName = '';
+
+// Tabs
+const tab = p => { $('pBox').classList.toggle('hide', !p); $('eBox').classList.toggle('hide', p); $('tP').classList.toggle('on', p); $('tE').classList.toggle('on', !p); say(''); };
+$('tP').onclick = () => tab(true); $('tE').onclick = () => tab(false);
+
+// Phone / SMS verification
+const verifier = new firebase.auth.RecaptchaVerifier('recaptcha', { size: 'invisible' });
+$('sendSms').onclick = async () => {
+  const n = $('ph').value.replace(/[\s()-]/g, '');
+  if (!/^\+[1-9]\d{7,14}$/.test(n)) return say('Enter the number with country code, e.g. +233240000000');
+  try {
+    confirmation = await auth.signInWithPhoneNumber(n, verifier);
+    $('codeBox').classList.remove('hide'); say('SMS code sent. Check your phone.', true);
+  } catch (e) { say(e.message); verifier.render().then(id => grecaptcha.reset(id)); }
+};
+$('verifySms').onclick = async () => {
+  try { await confirmation.confirm($('code').value.trim()); }
+  catch (e) { say('Invalid or expired code.'); }
+};
+
+// Email + password with verification email
+$('signUp').onclick = async () => {
+  try {
+    const c = await auth.createUserWithEmailAndPassword($('em').value.trim(), $('pw').value);
+    await c.user.sendEmailVerification();
+    say('Account created. Verification email sent: click the link, then sign in again.', true);
+    await auth.signOut();
+  } catch (e) { say(e.message); }
+};
+$('signIn').onclick = async () => {
+  try { await auth.signInWithEmailAndPassword($('em').value.trim(), $('pw').value); }
+  catch (e) { say('Wrong email or password.'); }
+};
+$('reset').onclick = async () => {
+  try { await auth.sendPasswordResetEmail($('em').value.trim()); say('Password reset email sent.', true); }
+  catch (e) { say(e.message); }
+};
+$('out').onclick = () => auth.signOut();
+
+// Session handling
+auth.onAuthStateChanged(async user => {
+  unsubs.forEach(u => u()); unsubs = [];
+  const loggedIn = !!user && (user.phoneNumber || user.emailVerified);
+  $('out').classList.toggle('hide', !user);
+  if (user && !loggedIn) { say('Please verify your email first (check your inbox), then sign in.'); await auth.signOut(); return; }
+  if (!loggedIn) { $('auth').classList.remove('hide'); $('nameBox').classList.add('hide'); $('app').classList.add('hide'); $('mem').textContent = 'Sign in to see members.'; return; }
+  $('auth').classList.add('hide');
+  const m = await db.collection('members').doc(user.uid).get();
+  if (m.exists) { myName = m.data().name; startApp(user); }
+  else { $('nameBox').classList.remove('hide'); }
+});
+$('saveName').onclick = async () => {
+  const n = $('nm').value.trim(), u = auth.currentUser; if (!n || !u) return;
+  await db.collection('members').doc(u.uid).set({ name: n, masked: mask(u), joined: Date.now() });
+  myName = n; $('nameBox').classList.add('hide'); startApp(u);
+};
+
+function startApp(u) {
+  $('app').classList.remove('hide');
+  unsubs.push(db.collection('members').onSnapshot(s => {
+    const b = $('mem'); b.textContent = ''; $('cnt').textContent = '(' + s.size + ')';
+    s.forEach(d => { const x = d.data(), r = document.createElement('div'); r.className = 'mem';
+      r.textContent = x.name + (d.id === u.uid ? ' (you)' : '') + ' · ' + x.masked; b.append(r); });
+  }));
+  unsubs.push(db.collection('posts').orderBy('ts', 'desc').limit(50).onSnapshot(s => {
+    const f = $('feed'); f.textContent = '';
+    if (s.empty) { f.innerHTML = '<div class="card mu">No posts yet. Be the first to share!</div>'; return; }
+    s.forEach(d => { const p = d.data(), c = document.createElement('div'); c.className = 'card post';
+      const m = document.createElement('div'); m.className = 'meta';
+      const w = document.createElement('span'), b = document.createElement('b'), t = document.createElement('span');
+      b.textContent = p.name; t.className = 'mu'; t.textContent = ' · ' + new Date(p.ts).toLocaleString(); w.append(b, t); m.append(w);
+      if (p.uid === u.uid) { const x = document.createElement('button'); x.className = 'btn ghost'; x.textContent = 'Delete'; x.onclick = () => d.ref.delete(); m.append(x); }
+      const q = document.createElement('p'); q.textContent = p.text; c.append(m, q); f.append(c); });
+  }));
+}
+$('post').onclick = async () => {
+  const t = $('tx').value.trim(), u = auth.currentUser; if (!t || !u) return;
+  await db.collection('posts').add({ uid: u.uid, name: myName, text: t, ts: Date.now() });
+  $('tx').value = '';
+};
+</script>
+</body>
+</html>
